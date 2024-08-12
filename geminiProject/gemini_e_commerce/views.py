@@ -37,8 +37,6 @@ class GeminiChatView(APIView):
         authentication_classes = [JWTAuthentication]
         permission_classes = [IsAuthenticated]
 
-        self.user=request.user
-
         def build_recommendation_response(recommended_products):
             try:
                 response=[]

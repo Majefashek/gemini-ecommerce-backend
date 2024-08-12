@@ -197,8 +197,8 @@ HAYSTACK_CONNECTIONS = {
 }
 
 ALGOLIA = {
-  'APPLICATION_ID': '86QCPJ0LSX',
-  'API_KEY': '82696d036e0d421638fa4a0c4aafe05b'
+  'APPLICATION_ID':os.environ["APPLICATION_ID"],
+  'API_KEY':os.environ["ALGOLIA_API_KEY"]
 }
 # This production code might break development mode, so we check whether we're in DEBUG mode
 if not DEBUG:
