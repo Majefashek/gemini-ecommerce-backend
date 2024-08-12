@@ -105,12 +105,8 @@ WSGI_APPLICATION = 'geminiProject.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'schema',
-        'USER': 'root',
-        'PASSWORD': '1234maje',
-        'HOST': 'localhost',  # Or the IP address of your MySQL server
-        'PORT': '3306',  # Default MySQL port
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': 'db.sqlite3',  # Name of the SQLite database file
     }
 }
 
