@@ -15,7 +15,6 @@ import os
 """
 from datetime import timedelta
 from pathlib import Path
-
 import os
 
 from pathlib import Path
@@ -57,12 +56,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'algoliasearch_django',
+    'haystack',
     'drf_yasg',
     'rest_framework',
     'gemini_e_commerce',
     'authentication',
     'rest_framework_simplejwt',
     'import_export',
+    
 ]
 
 MIDDLEWARE = [
@@ -191,6 +193,17 @@ USE_TZ = True
 # settings.py
 STATIC_URL = '/static/'
 
+HAYSTACK_CONNECTIONS = {
+    'default': {
+        'ENGINE': 'haystack.backends.whoosh_backend.WhooshEngine',
+        'PATH': os.path.join(os.path.dirname(__file__), 'whoosh_index'),
+    },
+}
+
+ALGOLIA = {
+  'APPLICATION_ID': '86QCPJ0LSX',
+  'API_KEY': '82696d036e0d421638fa4a0c4aafe05b'
+}
 # This production code might break development mode, so we check whether we're in DEBUG mode
 if not DEBUG:
     # Tell Django to copy static assets into a path called `staticfiles` (this is specific to Render)

@@ -7,8 +7,8 @@ from datetime import timedelta
 
 class ChatHistory(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    chat_text = models.CharField(max_length=200)
-    response_text = models.CharField(max_length=200)
+    chat_text = models.CharField(max_length=3000)
+    response_text = models.CharField(max_length=3000)
     created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return f"Chat History for {self.user.email}"

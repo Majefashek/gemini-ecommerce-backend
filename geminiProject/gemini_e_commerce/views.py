@@ -13,39 +13,13 @@ from drf_yasg import openapi
 import google.generativeai as genai
 from .models import *
 from .serializers import ProductSerializer
+from haystack.query import SearchQuerySet
+from algoliasearch_django import raw_search
 
-class GeminiChatService:
-    def __init__(self, user):
-        self.user = user
-        self.recent_chat_history = self.get_chat_history()
-        self.model = self._initialize_model()
-
-    
-
-    def _initialize_model(self):
-        genai.configure(api_key=os.environ["API_KEY"])
-
-        def get_product_info(product_id:int)->str:
-            '''
-            This function returns the product information for a given product id
-
-            Args:
-                product_id:int
-            Returns:
-                str
-            '''
-            return 'This is the product information for the given product id'
-
-        mytools = [get_product_info]
-        instruction = self.generate_system_instruction()
-        return genai.GenerativeModel('gemini-1.5-flash', tools=mytools, system_instruction=instruction)
-
-    
 
 
 class GeminiChatView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    
 
     @swagger_auto_schema(
         request_body=openapi.Schema(
@@ -60,135 +34,203 @@ class GeminiChatView(APIView):
         )
     )
     def post(self, request):
+        authentication_classes = [JWTAuthentication]
+        permission_classes = [IsAuthenticated]
 
-        def create_order(product_id:int,quantity:int)->bool:
-            '''
-            This function creates an order is created or not for a product with a given id:
-            Args:
-            product_id:int, this is the id of the product that the order is going to be created for
-            quantity:int, this is the quantity of the product that is wanted
-            Return True if the order is created
-            Return False if the product is out of stock
-            '''
+        self.user=request.user
 
-        def casual_response(query:str)->bool:
-            '''
-            This determines if the question asked by a user if it is looking for casual response
-            or not,not primary functions such as product inquiry, order request or recommending product
-            return True if that's the case or returns false if it is not
+        def build_recommendation_response(recommended_products):
+            try:
+                response=[]
+                recommend_products=recommend_products.hits
+                for product in recommended_products:
+                    data={}
+                    data['id']=product['objectID']
+                    data['name']=product['name']
+                    data['category']=product['description']
+                    data['season']=product['season']
+                    response.append(data)
 
-            Args:
-                query: Human question
+                return response
+            except:
+                return []
 
-            Returns True if yes 
-            '''
-        
-        def get_product_info(product_id:int)->dict:
-            '''
-            This function  takes in the product id
-            and gives answer to general inquiry regarding this product 
 
-            Args:
-                product_id:int
-            Returns: Information regarding the product  it is string format
-                dict
-            '''
+        def build_response_parts(responses):
+            response_parts = [
+                genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
+                for fn, val in responses.items()
+            ]
+
+            return response_parts
             
         
-        mytools=[get_product_info,casual_response,create_order]
+        def recommend_products(name: str, category: str) -> dict:
+            '''
+            This function provides product recommendations based on the provided details.
+            
+            Args:
+            name: str - The name of the product or keyword to base the recommendations on.
+            category: str - The category of the product, such as "accessory" or "cosmetic".
+            
+            Returns:
+            dict - A dictionary containing details of the best-matched recommended product(s).
+            '''
+            # response.candidates[0].content.parts[0].function_call implementation goes here
+            
 
-        #instruction=self.generate_system_instruction()
-        genai.configure(api_key=os.environ["API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash',tools=mytools)
-        chat = model.start_chat()
-        user_message = request.data.get('user_prompt')
-        prompt=self.generate_system_instruction(user_message)
-        response = chat.send_message(prompt)
+        def create_order(product_id: int, quantity: int) -> bool:
+            '''
+            This function processes an order request for a specific product.
+            
+            Args:
+            product_id: int - The ID of the product to be ordered.
+            quantity: int - The quantity of the product to be ordered.
+            
+            Returns:
+            bool - True if the order is successfully created; False if the product is out of stock or cannot be ordered.
+            '''
+            # Function implementation goes here
+            
+
+        def get_product_info(product_id: int) -> dict:
+            '''
+            This function retrieves detailed information about a specific product based on its ID.
+            
+            Args:
+            product_id: int - The ID of the product for which information is needed.
+            
+            Returns:
+            dict - A dictionary containing detailed information about the product, such as features, price, and availability.
+            '''
+            # Function implementation goes here
+            
+            
         
-        Function= response.candidates[0].content.parts[0].function_call
+       
 
-        
-        if Function.name== 'get_product_info':
-            args =Function.args
-            product_id = args['product_id']
-            product_info = ProductSerializer(Product.objects.get(id=product_id)).data
-            #return product_info
-            for part in response.parts:
-                if fn := part.function_call:
-                    args = ", ".join(f"{key}={val}" for key, val in fn.args.items())
-                    print(f"{fn.name}({args})")
+    
 
-            responses = {
-                "get_product_info":product_info,
-             }
+        try:#instruction=self.generate_system_instruction()
+            genai.configure(api_key=os.environ["API_KEY"])
+            mytools=[get_product_info,create_order]
+            model = genai.GenerativeModel('gemini-1.5-flash',tools=mytools)
+            
+            print(model._tools.to_proto())
+            chat = model.start_chat(enable_automatic_function_calling=True)
+            user_message = request.data.get('user_prompt')
+            prompt=self.generate_system_instruction(user_message)
+            response = chat.send_message(prompt)
+            
+            Function= response.candidates[0].content.parts[0].function_call
+            #print(Function.name)
 
-            # Build the response parts.
-            response_parts = [
-                genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
-                for fn, val in responses.items()
-            ]
 
-            response = chat.send_message(response_parts)
-            print(response)
-            return Response({'response':response.text})
-        
-        if Function.name=='create_order':
-            args =Function.args
-            product_id = args['product_id']
-            quantity=args['quantity']
-            product = Product.objects.get(id=product_id)
-            if product.stock>=quantity:
-                product.stock-=quantity
-                product.save()
-                Order.objects.create(user=request.user,
-                                     product_id=product_id,
-                                     quantity=quantity)
+            if response.candidates[0].content.parts[0].function_call.name=='recommend_products':
+                
+               
+                args =response.candidates[0].content.parts[0].function_call.args
+                name= args['name']
+                category=args['category']
+                query=f"{name} {category}"
+                params = { "hitsPerPage": 10 }
+
+                theresponse = raw_search(Product, query,params)
+                recommended_products=theresponse
+
+                #data=build_recommendation_response(recommended_products)
+
+
+                #return Response({'data':recommeded_products})
+
                 responses = {
-                "get_product_info":"",
-                "casual_response":True
-             }
-                responses = {
-                "create_order":True
+                    "get_product_info":recommended_products,
                 }
-                response_parts = [
-                    genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
-                    for fn, val in responses.items()
-                ]
+
+                # Build the response parts.
+                response_parts =build_response_parts(responses)
                 response = chat.send_message(response_parts)
-                print(response)
-                return Response({'response':"wow order"})
+                
+
+                self.create_chat_history(user_message,response.text)
+                
+                return Response({'success':True,
+                                'type':'recommend_products',
+                                'data':recommended_products,
+                                'response':response.text},status=200)
+
+
+            
+            elif response.candidates[0].content.parts[0].function_call.name== 'get_product_info':
+                
+                args =response.candidates[0].content.parts[0].function_call.args
+                product_id = args['product_id']
+                product_info = ProductSerializer(Product.objects.get(id=product_id)).data
+                #return product_info
+                for part in response.parts:
+                    if fn := part.function_call:
+                        args = ", ".join(f"{key}={val}" for key, val in fn.args.items())
+                        print(f"{fn.name}({args})")
+
+                responses = {
+                    "get_product_info":product_info,
+                }
+
+                # Build the response parts.
+                response_parts = build_response_parts(responses)
+                response = chat.send_message(response_parts)
+
+                self.create_chat_history(user_message,response.text)
+
+
+                return Response({'success':True,
+                                'type':'get_product_info',
+                                'response':response.text}, status=200)
+            
+            elif response.candidates[0].content.parts[0].function_call.name=='create_order':
+                
+                args =response.candidates[0].content.parts[0].function_call.args
+                product_id = args['product_id']
+                quantity=args['quantity']
+                product = Product.objects.get(id=product_id)
+                if product.stock>=quantity:
+                    product.stock-=quantity
+                    product.save()
+                    Order.objects.create(user=request.user,
+                                        product_id=product_id,
+                                        quantity=quantity)
+                   
+                    responses = {
+                    "create_order":True
+                    }
+                    response_parts = build_response_parts(responses)
+                    response = chat.send_message(response_parts)
+
+                    self.create_chat_history(user_message,response.text)
+
+                    return Response({'success':True, 
+                                    'type':'create_order',
+                                    'response':'response.text'},status=200)
+                    
+                else:
+                    responses = {
+                    "create_order":False
+                    }
+                    response_parts =build_response_parts(responses)
+                    response = chat.send_message(response_parts)
+
+                    self.create_chat_history(user_message,response.text)
+
+                    return Response({'success':True,
+                                    'type':'create_order',
+                                    'response':"order not created"},status=200)
                 
             else:
-                responses = {
-                "create_order":False
-                }
-                response_parts = [
-                    genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
-                    for fn, val in responses.items()
-                ]
-                response = chat.send_message(response_parts)
-                print(response)
+                return Response({'message':'Can you re-articulate your question'})
 
-                return Response({'response':"order not created"})
-                return False
-
-        
-        else:
-            responses = {
-                "get_product_info":"",
-                "casual_response":True
-             }
-            response_parts = [
-                genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
-                for fn, val in responses.items()
-            ]
-
-            response = chat.send_message(response_parts)
-
-                   
-            print(response)
-            return Response({'response':"wow"})
-
+                    
+        except Exception as e:
+            raise e
 
 
 
@@ -213,116 +255,39 @@ class GeminiChatView(APIView):
 
 
 
-
-
-    
-
-    def process_chat(self, user_message):
-        chat = self.model.start_chat()
-        response = chat.send_message(user_message)
-        text = self.keep_normal_text(response.text)
-        self.create_chat_history(user_message, text)
-        
-        # Debugging response content
-        print("Response:", response)
-        print("Response candidates:", response.candidates)
-        
-        if response.candidates[0].content.parts[0].function_call:
-            function_call = response.candidates[0].content.parts[0].function_call
-            print("Function Call:", function_call)
-            
-            if function_call.name == 'get_product_info':
-                args = function_call.args
-                print("Function Args:", args)
-                product_id = args['product_id']
-                product_info = ProductSerializer(Product.objects.get(id=product_id)).data
-
-                return product_info
-            else:
-                return function_call.name
-        else:
-            return text
-
     def create_chat_history(self, chat, response):
+        response= re.sub(r'[^\w\s.,!?\'"]+', '', response)
         ChatHistory.objects.create(user=self.user, chat_text=chat, response_text=response)
-
-    @staticmethod
-    def keep_normal_text(text):
-        return re.sub(r'[^\w\s.,!?\'"]+', '', text)
-
-    
-
-
 
 
     
     def generate_system_instruction(self,user_message):
         chat_history = self.get_chat_history()
-        instruction = f"""The following is a structured chat history between you (an ecommerce AI assistant) and the user. 
-                        Refer to this history to understand the context before responding to the current query.
+        instruction = f"""
+        System: You are an AI assistant for an e-commerce website. Your role is to help customers with product inquiries, recommendations, and order creation. You have access to several tools to assist you in these tasks. Always use the most appropriate tool when responding to user queries.
 
-                        Chat History (Field Definitions):
-                        - `role_user`: Indicates the user's message or statement.
-                        - `user_content`: Contains the actual text of the user's message.
-                        - `role_assistant`: Indicates your response as the assistant.
-                        - `assistant_content`: Contains the actual text of your response.
+        Tools:
 
-                        Here is the chat history:
-                        chat_history={chat_history}
+        1. recommend_products(name: str, category: str) -> dict
+        Description: Use this tool to provide product recommendations based on a product name or keyword and category.
+        When to use: When a user asks for product suggestions or similar items.
 
-                    Instructions:
-                    1. Product Inquiry:
-                        - Definition: A user asking for specific information about a product, typically using a product ID.
-                        - Example: "Can you tell me more about product ID 12345?"
-                        - Action: Use the product ID to look up and provide detailed information about the product.
+        2. create_order(product_id: int, quantity: int) -> bool
+        Description: Use this tool to process an order for a specific product and quantity.
+        When to use: When a user expresses a desire to purchase a product.
 
-                        2. Order Processing:
-                        - Definition: A user wanting to place an order for a specific product, usually mentioning a product ID.
-                        - Example: "I'd like to order product 67890."
-                        - Action: Confirm the product details and guide the user through the ordering process.
+        3. get_product_info(product_id: int) -> dict
+        Description: Use this tool to retrieve detailed information about a specific product.
+        When to use: When a user asks for details about a particular product.
 
-                        3. Product Recommendations:
-                        - Definition: A user seeking suggestions for products based on their preferences or needs.
-                        - Example: "What running shoes do you recommend for long-distance runners?"
-                        - Action: Ask for more details if needed, then suggest appropriate products.
+        Instructions:
+        - Always use the appropriate tool when responding to user queries.
+        - If you need more information to use a tool, ask the user for the required details.
+        - After using a tool, interpret the results and provide a natural language response to the user.
+        - If a tool returns an error or unexpected result, inform the user and offer alternative solutions.
 
-                        4. General Query:
-                        - Definition: Any question not directly related to specific products, orders, or recommendations.
-                        - Example: "What are your store hours?" or "Do you offer gift wrapping?"
-                        - Action: Provide a straightforward answer without using specialized tools.
+        User: {user_message}"""
 
-                        Instructions for Handling Queries:
-
-                        1. Identify the type of query based on the definitions above.
-
-                        2. For Product Inquiries:
-                        - Look for a product ID in the user's message.
-                        - Use appropriate tools to fetch product information.
-                        - Provide detailed information about the product (features, price, availability, etc.).
-
-                        3. For Order Processing:
-                        - Confirm the product ID the user wants to order.
-                        - Guide the user through the ordering steps (quantity, shipping, payment, etc.).
-                        - Use order processing tools if available.
-
-                        4. For Product Recommendations:
-                        - Understand the user's needs and preferences.
-                        - If necessary, ask follow-up questions for clarification.
-                        - Provide tailored product suggestions based on the information given.
-
-                        5. For General Queries:
-                        - Respond with a straightforward, informative answer.
-                        - No need to use specialized ecommerce tools for these queries.
-
-                        6. For all query types:
-                        - Always refer to the chat history for context.
-                        - Ensure your response is clear, helpful, and relevant to the user's needs.
-                        - If any part of the query is unclear, ask for clarification.
-
-                        Here is the current user question:
-                        {user_message}
-
-                        Please identify the type of query and respond appropriately based on the instructions above."""
         return instruction
 
 

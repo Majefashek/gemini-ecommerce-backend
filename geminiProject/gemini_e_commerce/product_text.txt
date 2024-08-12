@@ -1,0 +1,7 @@
+{{ object.name }}
+{{ object.category }}
+{{object.description}}
+{{object.price}}
+{{object.category}}
+{{object.season}}
+{{object.stock}}

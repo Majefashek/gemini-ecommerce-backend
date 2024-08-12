@@ -23,4 +23,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/',include('authentication.urls')),
     path('api/gemini/',include('gemini_e_commerce.urls')),
+    path('search/', include('haystack.urls')),
 ]
