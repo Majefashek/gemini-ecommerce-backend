@@ -11,7 +11,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 import google.generativeai as genai
-from .models import ChatHistory, Product
+from .models import *
 from .serializers import ProductSerializer
 
 class GeminiChatService:
@@ -60,14 +60,134 @@ class GeminiChatView(APIView):
         )
     )
     def post(self, request):
-        user_message = request.data.get('user_prompt')
-        if not user_message:
-            return Response({'error': 'user_prompt is required'}, status=400)
 
-        chat_service = GeminiChatService(request.user)
-        response_text = chat_service.process_chat(user_message)
-        return Response({'response': response_text})
-    
+        def create_order(product_id:int,quantity:int)->bool:
+            '''
+            This function creates an order is created or not for a product with a given id:
+            Args:
+            product_id:int, this is the id of the product that the order is going to be created for
+            quantity:int, this is the quantity of the product that is wanted
+            Return True if the order is created
+            Return False if the product is out of stock
+            '''
+
+        def casual_response(query:str)->bool:
+            '''
+            This determines if the question asked by a user if it is looking for casual response
+            or not,not primary functions such as product inquiry, order request or recommending product
+            return True if that's the case or returns false if it is not
+
+            Args:
+                query: Human question
+
+            Returns True if yes 
+            '''
+        
+        def get_product_info(product_id:int)->dict:
+            '''
+            This function  takes in the product id
+            and gives answer to general inquiry regarding this product 
+
+            Args:
+                product_id:int
+            Returns: Information regarding the product  it is string format
+                dict
+            '''
+            
+        
+        mytools=[get_product_info,casual_response,create_order]
+
+        #instruction=self.generate_system_instruction()
+        genai.configure(api_key=os.environ["API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash',tools=mytools)
+        chat = model.start_chat()
+        user_message = request.data.get('user_prompt')
+        prompt=self.generate_system_instruction(user_message)
+        response = chat.send_message(prompt)
+        
+        Function= response.candidates[0].content.parts[0].function_call
+
+        
+        if Function.name== 'get_product_info':
+            args =Function.args
+            product_id = args['product_id']
+            product_info = ProductSerializer(Product.objects.get(id=product_id)).data
+            #return product_info
+            for part in response.parts:
+                if fn := part.function_call:
+                    args = ", ".join(f"{key}={val}" for key, val in fn.args.items())
+                    print(f"{fn.name}({args})")
+
+            responses = {
+                "get_product_info":product_info,
+             }
+
+            # Build the response parts.
+            response_parts = [
+                genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
+                for fn, val in responses.items()
+            ]
+
+            response = chat.send_message(response_parts)
+            print(response)
+            return Response({'response':response.text})
+        
+        if Function.name=='create_order':
+            args =Function.args
+            product_id = args['product_id']
+            quantity=args['quantity']
+            product = Product.objects.get(id=product_id)
+            if product.stock>=quantity:
+                product.stock-=quantity
+                product.save()
+                Order.objects.create(user=request.user,
+                                     product_id=product_id,
+                                     quantity=quantity)
+                responses = {
+                "get_product_info":"",
+                "casual_response":True
+             }
+                responses = {
+                "create_order":True
+                }
+                response_parts = [
+                    genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
+                    for fn, val in responses.items()
+                ]
+                response = chat.send_message(response_parts)
+                print(response)
+                return Response({'response':"wow order"})
+                
+            else:
+                responses = {
+                "create_order":False
+                }
+                response_parts = [
+                    genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
+                    for fn, val in responses.items()
+                ]
+                response = chat.send_message(response_parts)
+                print(response)
+
+                return Response({'response':"order not created"})
+                return False
+
+        
+        else:
+            responses = {
+                "get_product_info":"",
+                "casual_response":True
+             }
+            response_parts = [
+                genai.protos.Part(function_response=genai.protos.FunctionResponse(name=fn, response={"result": val}))
+                for fn, val in responses.items()
+            ]
+
+            response = chat.send_message(response_parts)
+
+                   
+            print(response)
+            return Response({'response':"wow"})
 
 
 
@@ -77,7 +197,7 @@ class GeminiChatView(APIView):
         thirty_days_ago = timezone.now() - timedelta(days=2)
         recent_messages = ChatHistory.objects.filter(
             created_at__gte=thirty_days_ago
-        ).order_by('-created_at')[:30]
+        ).order_by('-created_at')[1:]
 
         if recent_messages:
             return [
@@ -136,36 +256,73 @@ class GeminiChatView(APIView):
 
 
     
-    def generate_system_instruction(self):
+    def generate_system_instruction(self,user_message):
         chat_history = self.get_chat_history()
-        instruction = f"""
-            The following is a structured chat history between you (the Assistant) and the user. 
-            Refer to this history to understand the context before responding to the current query.
+        instruction = f"""The following is a structured chat history between you (an ecommerce AI assistant) and the user. 
+                        Refer to this history to understand the context before responding to the current query.
 
-            Chat History (Field Definitions):
-            - `role_user`: Indicates the user's message or statement.
-            - `user_content`: Contains the actual text of the user's message.
-            - `role_assistant`: Indicates the assistant's response.
-            - `assistant_content`: Contains the actual text of the assistant's response.
+                        Chat History (Field Definitions):
+                        - `role_user`: Indicates the user's message or statement.
+                        - `user_content`: Contains the actual text of the user's message.
+                        - `role_assistant`: Indicates your response as the assistant.
+                        - `assistant_content`: Contains the actual text of your response.
 
-            Here is the chat history:
-            chat_history={chat_history}
+                        Here is the chat history:
+                        chat_history={chat_history}
 
-            Instructions:
-            1. Review the chat history to gather context and understand the flow of the conversation.
-            2. The `role_user` fields represent the user's questions or statements. The `role_assistant` fields are your responses.
-            3. Use the context from the chat history to inform your response to the current message.
-            4. Ensure that your response considers the previous interactions and provides a coherent answer to the user's current query.
-            5. If necessary, clarify any ambiguities or correct any misunderstandings from previous responses.
-            6. Provide a response that builds upon the context provided and helps advance the conversation.
+                    Instructions:
+                    1. Product Inquiry:
+                        - Definition: A user asking for specific information about a product, typically using a product ID.
+                        - Example: "Can you tell me more about product ID 12345?"
+                        - Action: Use the product ID to look up and provide detailed information about the product.
 
-            Also note: Whenever you are asked about our conversation history, please refer to the chat history above
-            and give a more context-based answer.
-            ALWAYS REFER TO THE chat_history before giving a response.
-            ALSO NOTE KEY WORDS SUCH AS REMEMBER; whenever those key words are invoked, please refer to them before
-            giving a response.
-            NOTE:Avoid answers like "I am unable to remember past conversations. I have no memory of past interactions. Each time we interact, it's like starting a new conversation."
-            """
+                        2. Order Processing:
+                        - Definition: A user wanting to place an order for a specific product, usually mentioning a product ID.
+                        - Example: "I'd like to order product 67890."
+                        - Action: Confirm the product details and guide the user through the ordering process.
+
+                        3. Product Recommendations:
+                        - Definition: A user seeking suggestions for products based on their preferences or needs.
+                        - Example: "What running shoes do you recommend for long-distance runners?"
+                        - Action: Ask for more details if needed, then suggest appropriate products.
+
+                        4. General Query:
+                        - Definition: Any question not directly related to specific products, orders, or recommendations.
+                        - Example: "What are your store hours?" or "Do you offer gift wrapping?"
+                        - Action: Provide a straightforward answer without using specialized tools.
+
+                        Instructions for Handling Queries:
+
+                        1. Identify the type of query based on the definitions above.
+
+                        2. For Product Inquiries:
+                        - Look for a product ID in the user's message.
+                        - Use appropriate tools to fetch product information.
+                        - Provide detailed information about the product (features, price, availability, etc.).
+
+                        3. For Order Processing:
+                        - Confirm the product ID the user wants to order.
+                        - Guide the user through the ordering steps (quantity, shipping, payment, etc.).
+                        - Use order processing tools if available.
+
+                        4. For Product Recommendations:
+                        - Understand the user's needs and preferences.
+                        - If necessary, ask follow-up questions for clarification.
+                        - Provide tailored product suggestions based on the information given.
+
+                        5. For General Queries:
+                        - Respond with a straightforward, informative answer.
+                        - No need to use specialized ecommerce tools for these queries.
+
+                        6. For all query types:
+                        - Always refer to the chat history for context.
+                        - Ensure your response is clear, helpful, and relevant to the user's needs.
+                        - If any part of the query is unclear, ask for clarification.
+
+                        Here is the current user question:
+                        {user_message}
+
+                        Please identify the type of query and respond appropriately based on the instructions above."""
         return instruction
 
 
@@ -176,4 +333,4 @@ class GeminiChatView(APIView):
 
 
 
-        
+    
